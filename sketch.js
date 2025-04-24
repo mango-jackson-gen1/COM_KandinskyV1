@@ -15,6 +15,7 @@ let completedShapes = []; // Array to track completed shapes with their notes
 let audioContext = null;
 let startButton;
 let isMobileDevice = false;
+let isIOS = false; // Specifically track iOS devices
 let audioContextUnlocked = false; // Track if the audio context has been unlocked
 
 // Shape class to track drawing paths
@@ -158,16 +159,17 @@ function setup() {
     strokeWeight(3); // Reduced to 3 pixels thick
     noFill();
     
-    // Check if device is mobile
+    // Check if device is mobile and specifically iOS
     isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    console.log("Detected device type:", isMobileDevice ? "Mobile" : "Desktop");
+    isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    console.log("Detected device type:", isMobileDevice ? (isIOS ? "iOS Mobile" : "Android Mobile") : "Desktop");
     
     // Adjust button and text size for mobile
     const buttonSize = isMobileDevice ? 18 : 16;
     const buttonPadding = isMobileDevice ? "15px 20px" : "10px 15px";
     
     // Create start button for audio with explicit dimensions
-    startButton = createButton('Click to Enable Sound');
+    startButton = createButton('Tap to Enable Sound');
     startButton.position(20, 20);
     startButton.addClass('start-button');
     if (isMobileDevice) {
@@ -199,93 +201,101 @@ function setup() {
     // Responsive text size, 30% smaller
     const fontSize = min(24, windowWidth / 25) * 0.7; // 30% smaller
     textSize(fontSize);
-    text('Click the button in the top-left corner to enable sound', width/2, height/2);
+    text('Tap the pink button in the top-left corner to enable sound', width/2, height/2);
     
     // Add additional mobile instruction if on a mobile device
     if (isMobileDevice) {
         textSize(fontSize * 0.8);
-        text('(Tap the pink button)', width/2, height/2 + 30); // Adjusted position for smaller text
+        text('(Audio permission is required)', width/2, height/2 + 30); // Adjusted position for smaller text
     }
 }
 
 // Function to start audio with user interaction
 function startAudio() {
-    // Prevent double initialization
-    if (audioStarted) {
-        console.log("Sound is already enabled");
-        return;
-    }
-    
     console.log("Attempting to start audio...");
+    console.log("Audio context state:", Tone.context.state);
     
-    // Create an unmute/unlock function specifically for mobile
-    const unlockAudioContext = () => {
-        console.log("Unlocking audio context for mobile...");
-        
-        // Create and play a silent buffer to unlock audio
-        const silentBuffer = Tone.context.createBuffer(1, 1, 22050);
-        const source = Tone.context.createBufferSource();
-        source.buffer = silentBuffer;
-        source.connect(Tone.context.destination);
-        source.start(0);
-        
-        // Resume the audio context
-        if (Tone.context.state !== 'running') {
+    // iOS requires a touch event to be directly connected to audio initialization
+    const initializeAudio = () => {
+        // If already started, just try to resume the context
+        if (audioStarted) {
+            console.log("Audio already initialized, resuming context...");
             Tone.context.resume().then(() => {
-                console.log("Audio context resumed:", Tone.context.state);
-                audioContextUnlocked = true;
+                console.log("Context resumed, state:", Tone.context.state);
+            }).catch(err => {
+                console.error("Error resuming context:", err);
             });
-        } else {
-            audioContextUnlocked = true;
+            return;
+        }
+        
+        // For iOS, we need to create a temporary buffer and play it to unlock the audio
+        if (isIOS) {
+            try {
+                // Create a short buffer of silence and play it
+                console.log("Creating iOS silent buffer");
+                const audioContext = Tone.context;
+                const buffer = audioContext.createBuffer(1, 1, 22050);
+                const source = audioContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioContext.destination);
+                source.start(0);
+                console.log("Silent buffer started");
+            } catch (e) {
+                console.error("Error creating silent buffer:", e);
+            }
+        }
+        
+        // Start Tone.js with direct user interaction
+        try {
+            console.log("Starting Tone.js...");
+            Tone.start().then(() => {
+                console.log("Tone.js started successfully. Context state:", Tone.context.state);
+                
+                // Make sure we only initialize once
+                if (audioStarted) return;
+                
+                // Explicitly resume the context (required for iOS)
+                return Tone.context.resume();
+            }).then(() => {
+                console.log("Audio context resumed. State:", Tone.context.state);
+                
+                // Connect synth to destination
+                synth.toDestination();
+                
+                // Start Tone transport
+                Tone.Transport.start();
+                
+                // Update UI
+                audioStarted = true;
+                startButton.html('Sound Enabled');
+                
+                // Test sound after a delay
+                setTimeout(() => {
+                    try {
+                        console.log("Trying to play test note. Context state:", Tone.context.state);
+                        // One more resume attempt right before playing
+                        Tone.context.resume().then(() => {
+                            synth.triggerAttackRelease("C4", "8n");
+                            console.log("Test note played");
+                        });
+                    } catch (e) {
+                        console.error("Failed to play test note:", e);
+                    }
+                }, isIOS ? 500 : 300); // Longer delay for iOS
+                
+            }).catch(error => {
+                console.error("Failed to start/resume Tone.js:", error);
+                startButton.html('Tap Again');
+                // Keep the button pink to encourage retrying
+            });
+        } catch (e) {
+            console.error("Exception in Tone.js initialization:", e);
+            startButton.html('Tap Again');
         }
     };
     
-    // Start Tone.js
-    Tone.start().then(() => {
-        console.log("Tone.js started successfully");
-        
-        // Make sure we haven't already started in another callback
-        if (audioStarted) return;
-        
-        // Explicitly unlock audio context for mobile devices
-        if (isMobileDevice) {
-            unlockAudioContext();
-        }
-        
-        // Connect synth to destination after audio context is running
-        synth.toDestination();
-        // Also start the Tone transport
-        Tone.Transport.start();
-        
-        audioStarted = true;
-        // Change text but keep button pink
-        startButton.html('Sound Enabled');
-        // Don't change background color, keep it pink
-        
-        // Test sound to confirm audio is working - delay a bit longer for mobile
-        setTimeout(() => {
-            try {
-                // Explicitly resume context again right before playing
-                if (Tone.context.state !== 'running') {
-                    Tone.context.resume().then(() => {
-                        synth.triggerAttackRelease("C4", "8n");
-                        console.log("Test note played after resuming context");
-                    });
-                } else {
-                    synth.triggerAttackRelease("C4", "8n");
-                    console.log("Test note played");
-                }
-            } catch (e) {
-                console.error("Error playing test note:", e);
-            }
-        }, isMobileDevice ? 300 : 100); // Longer delay for mobile
-        
-    }).catch(error => {
-        console.error("Failed to start Tone.js:", error);
-        startButton.html('Sound Failed - Try Again');
-        // Use a red background for errors
-        startButton.style('background-color', '#FF0000');
-    });
+    // Call the initialization function directly
+    initializeAudio();
 }
 
 function draw() {
@@ -508,26 +518,16 @@ function windowResized() {
 // Add touch event handlers for mobile devices
 // Consolidated button handler for both mouse and touch events
 function handleStartButtonPress() {
+    console.log("Button pressed, event:", window.event ? window.event.type : "unknown event");
+    
     // Prevent event propagation
     if (window.event) {
         window.event.stopPropagation();
         window.event.preventDefault();
     }
-    console.log("Button pressed via:", window.event ? window.event.type : "unknown event");
     
-    // For iOS, we need to call startAudio in direct response to the user interaction
+    // For iOS, directly call startAudio from the event handler
     startAudio();
-    
-    // If we're on mobile and already attempted to start but audio context isn't running
-    // try resuming it again
-    if (isMobileDevice && audioStarted && Tone.context.state !== 'running') {
-        console.log("Attempting to resume audio context again...");
-        Tone.context.resume().then(() => {
-            console.log("Audio context state after retry:", Tone.context.state);
-            // Try playing a test note again
-            synth.triggerAttackRelease("C4", "8n");
-        });
-    }
     
     return false; // Prevent default behavior
 }
@@ -535,6 +535,8 @@ function handleStartButtonPress() {
 function touchStarted() {
     // Early exit if no touches
     if (!touches || touches.length === 0) return false;
+    
+    console.log("Touch started. Audio started:", audioStarted, "Context state:", Tone.context ? Tone.context.state : "no context");
     
     // Check if the touch is on the start button with a slightly larger hit area for mobile
     if (startButton) {
@@ -546,16 +548,20 @@ function touchStarted() {
             touches[0].y <= startButton.y + startButton.size.height + buffer) {
             
             console.log("Touch detected on sound button area");
-            // Manually call our button handler
+            // Call the button handler directly in the touch event (critical for iOS)
             handleStartButtonPress();
             return false; // Prevent default
         }
     }
 
-    // If audio is already started but context is suspended (common on iOS), resume it
-    if (audioStarted && Tone.context.state !== 'running') {
-        console.log("Resuming audio context on user interaction");
-        Tone.context.resume();
+    // Try to resume audio context on any touch interaction
+    if (Tone.context && audioStarted && Tone.context.state !== 'running') {
+        console.log("Trying to resume context on touch");
+        Tone.context.resume().then(() => {
+            console.log("Context resumed on touch. State:", Tone.context.state);
+        }).catch(err => {
+            console.error("Error resuming on touch:", err);
+        });
     }
 
     // Prevent default to stop scrolling/zooming
