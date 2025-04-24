@@ -7,6 +7,7 @@ const F_MAJOR = [65, 67, 69, 71, 73, 74, 76, 77]; // F4 to F5
 // Global variables
 let shapes = [];
 let synth;
+let audioOscillator; // Direct Web Audio API oscillator for emergency sounds
 let isDrawing = false;
 let currentShape = null;
 let audioStarted = false;
@@ -16,8 +17,8 @@ let audioContext = null;
 let startButton;
 let isMobileDevice = false;
 let isIOS = false; // Specifically track iOS devices
-let audioContextUnlocked = false; // Track if the audio context has been unlocked
 let baseAudioCtx; // Base audio context for system-level unlocking
+let lastSoundTime = 0; // Track when we last tried to play a sound
 
 // Debug logging for mobile
 let debugLogs = ["Debug logs will appear here"];
@@ -40,7 +41,80 @@ function debugLog(message) {
     }
 }
 
-// Direct audio initialization function - restructured for maximum reliability
+// Function to directly play a sound using Web Audio API
+function playSimpleTone(frequency, duration = 100) {
+    if (!baseAudioCtx || baseAudioCtx.state !== 'running') {
+        debugLog("Cannot play tone - audio context not available or running");
+        return;
+    }
+    
+    try {
+        // Current time to avoid scheduling in the past
+        const now = baseAudioCtx.currentTime;
+        
+        // Create oscillator and gain node
+        const oscillator = baseAudioCtx.createOscillator();
+        const gainNode = baseAudioCtx.createGain();
+        
+        // Set properties
+        oscillator.type = 'sine';
+        oscillator.frequency.value = frequency;
+        gainNode.gain.value = 0.3; // Moderate volume
+        
+        // Set up envelope
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(0.3, now + 0.01); // Quick attack
+        gainNode.gain.linearRampToValueAtTime(0, now + (duration / 1000)); // Gradual release
+        
+        // Connect and start
+        oscillator.connect(gainNode);
+        gainNode.connect(baseAudioCtx.destination);
+        
+        oscillator.start(now);
+        oscillator.stop(now + (duration / 1000));
+        
+        debugLog(`Played direct tone: ${frequency}Hz`);
+        
+        // Clean up
+        oscillator.onended = () => {
+            oscillator.disconnect();
+            gainNode.disconnect();
+        };
+    } catch (e) {
+        debugLog(`Error playing direct tone: ${e.message}`);
+    }
+}
+
+// Direct function to try playing a sound using both methods
+function playSound(midiNote) {
+    const currentTime = Date.now();
+    // Rate limit sound playback to avoid overwhelming the audio system
+    if (currentTime - lastSoundTime < 100) {
+        return; // Don't play sounds too close together
+    }
+    lastSoundTime = currentTime;
+    
+    // Try Tone.js first
+    if (audioStarted && synth) {
+        try {
+            const freq = Tone.Frequency(midiNote, "midi").toFrequency();
+            synth.triggerAttackRelease(freq, "16n");
+            debugLog(`Played Tone.js note: ${Tone.Frequency(midiNote, "midi").toNote()}`);
+        } catch (e) {
+            debugLog(`Tone.js play error: ${e.message}`);
+        }
+    }
+    
+    // Also try direct Web Audio API as backup
+    try {
+        const freq = Math.pow(2, (midiNote - 69) / 12) * 440; // Convert MIDI to frequency
+        playSimpleTone(freq, 150);
+    } catch (e) {
+        debugLog(`Direct audio play error: ${e.message}`);
+    }
+}
+
+// Direct audio initialization function with major simplification
 function initAudio() {
     debugLog("initAudio called by direct user interaction");
     
@@ -49,78 +123,99 @@ function initAudio() {
         debugLog("Audio already initialized, resuming contexts");
         if (baseAudioCtx) baseAudioCtx.resume();
         if (Tone.context) Tone.context.resume();
+        
+        // Play a series of test tones using direct Web Audio API
+        setTimeout(() => {
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    const freq = 261.63 * Math.pow(2, i/12); // C scale frequencies
+                    playSimpleTone(freq, 200);
+                }, i * 250);
+            }
+        }, 100);
+        
         return;
     }
     
     try {
-        // 1. Create the base Audio Context
+        // Create the simplest possible audio context
         baseAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
         debugLog(`Base audio context created: ${baseAudioCtx.state}`);
         
-        // 2. Play a silent sound immediately
-        const oscillator = baseAudioCtx.createOscillator();
-        const gainNode = baseAudioCtx.createGain();
-        gainNode.gain.value = 0.001; // Nearly silent
-        oscillator.connect(gainNode);
-        gainNode.connect(baseAudioCtx.destination);
-        oscillator.start(0);
-        oscillator.stop(baseAudioCtx.currentTime + 0.001);
-        debugLog("Played silent oscillator to unlock audio");
-        
-        // 3. Resume the base context
+        // Try to resume it immediately
         baseAudioCtx.resume().then(() => {
-            debugLog(`Base context resumed: ${baseAudioCtx.state}`);
+            debugLog(`Audio context resumed: ${baseAudioCtx.state}`);
             
-            // 4. Now initialize Tone.js
-            if (!audioStarted) {
-                try {
-                    // Set Tone to use our already initialized audio context
-                    Tone.setContext(baseAudioCtx);
-                    debugLog("Tone set to use the base audio context");
+            // Play a silent sound to unlock the audio
+            const oscillator = baseAudioCtx.createOscillator();
+            const gainNode = baseAudioCtx.createGain();
+            gainNode.gain.value = 0.001; // Nearly silent
+            oscillator.connect(gainNode);
+            gainNode.connect(baseAudioCtx.destination);
+            oscillator.start();
+            oscillator.stop(baseAudioCtx.currentTime + 0.001);
+            
+            // Set up Tone.js to use our audio context
+            try {
+                Tone.setContext(baseAudioCtx);
+                synth = new Tone.PolySynth(Tone.Synth, {
+                    envelope: {
+                        attack: 0.005,
+                        decay: 0.1,
+                        sustain: 0.3,
+                        release: 0.1
+                    }
+                });
+                synth.volume.value = 0; // Full volume
+                synth.toDestination();
+                Tone.Transport.start();
+                
+                audioStarted = true;
+                startButton.html('SOUND ENABLED');
+                debugLog("Audio successfully initialized");
+                
+                // Play a series of test sounds after a short delay
+                setTimeout(() => {
+                    // Direct Web Audio API test tones
+                    for (let i = 0; i < 5; i++) {
+                        setTimeout(() => {
+                            const freq = 261.63 * Math.pow(2, i/12); // C scale frequencies
+                            playSimpleTone(freq, 200);
+                        }, i * 250);
+                    }
                     
-                    // Initialize the synth and connect it
-                    synth = new Tone.PolySynth(Tone.Synth, {
-                        envelope: {
-                            attack: 0.005,
-                            decay: 0.1,
-                            sustain: 0.3,
-                            release: 0.1
-                        }
-                    });
-                    synth.volume.value = -6; // Make it louder than before (-10)
-                    synth.toDestination();
-                    Tone.Transport.start();
-                    
-                    // Update state and UI
-                    audioStarted = true;
-                    startButton.html('SOUND ENABLED');
-                    
-                    // Play multiple test notes to ensure audio is working
+                    // Also try Tone.js sounds
                     setTimeout(() => {
                         try {
-                            debugLog("Playing multiple test notes");
-                            
-                            // Play C major scale as test
                             for (let i = 0; i < 5; i++) {
                                 setTimeout(() => {
                                     synth.triggerAttackRelease(Tone.Frequency(60 + i, "midi").toFrequency(), "8n");
-                                    debugLog(`Test note ${i+1} played`);
-                                }, i * 200);
+                                }, i * 250);
                             }
                         } catch (e) {
-                            debugLog(`Error playing test notes: ${e.message}`);
+                            debugLog(`Error playing Tone.js test: ${e.message}`);
                         }
-                    }, 300);
-                } catch (e) {
-                    debugLog(`Error initializing Tone.js: ${e.message}`);
-                }
+                    }, 1500); // After direct tones finish
+                }, 300);
+                
+            } catch (e) {
+                debugLog(`Tone.js setup error: ${e.message}`);
+                
+                // Even if Tone.js fails, we can still use direct Web Audio API
+                audioStarted = true;
+                startButton.html('BASIC SOUND ENABLED');
             }
-        }).catch(err => {
-            debugLog(`Error resuming base context: ${err.message}`);
         });
     } catch (e) {
-        debugLog(`Error creating audio context: ${e.message}`);
+        debugLog(`Audio initialization error: ${e.message}`);
     }
+    
+    // Try to resume audio context on any user interaction
+    document.addEventListener('touchstart', function() {
+        if (baseAudioCtx && baseAudioCtx.state !== 'running') {
+            baseAudioCtx.resume();
+        }
+    });
 }
 
 // Shape class to track drawing paths
@@ -163,15 +258,9 @@ class Shape {
                 position: this.points.length - 1 // Index of the point this note corresponds to
             });
             
-            // Play the note immediately while drawing
-            if (audioStarted && synth) {
-                try {
-                    const freq = Tone.Frequency(note, "midi").toFrequency();
-                    synth.triggerAttackRelease(freq, "16n"); // Short note during drawing
-                    debugLog(`Playing note during drawing: ${Tone.Frequency(note, "midi").toNote()}`);
-                } catch (e) {
-                    debugLog(`Error playing note during drawing: ${e.message}`);
-                }
+            // Play the note directly
+            if (audioStarted) {
+                playSound(note);
             }
         }
     }
@@ -184,7 +273,6 @@ class Shape {
         if (this.isComplete && age > this.lifespan * 0.5 && this.fadeStartTime === 0) {
             this.fadeStartTime = currentTime;
             this.lastFadeTime = currentTime;
-            console.log("Starting pixel fade");
         }
         
         // If fade has started, progress the fade index at a steady rate
@@ -203,8 +291,9 @@ class Shape {
                 // Play the current note in the sequence
                 if (this.playbackIndex < this.notes.length) {
                     const noteInfo = this.notes[this.playbackIndex];
-                    const freq = Tone.Frequency(noteInfo.midiNote, "midi").toFrequency();
-                    synth.triggerAttackRelease(freq, "8n");
+                    
+                    // Use our universal sound function
+                    playSound(noteInfo.midiNote);
                     
                     // Advance to next note
                     this.playbackIndex = (this.playbackIndex + 1) % this.notes.length;
@@ -281,7 +370,7 @@ function setup() {
     debugLog(`Detected device: ${isMobileDevice ? (isIOS ? "iOS Mobile" : "Android Mobile") : "Desktop"}`);
     
     // Create large prominent button for better touch target on mobile
-    startButton = createButton('TAP TO ENABLE SOUND');
+    startButton = createButton('TAP FOR SOUND');
     startButton.position(20, 20);
     startButton.addClass('start-button');
     if (isMobileDevice) {
@@ -289,6 +378,7 @@ function setup() {
         // Make button bigger on mobile
         startButton.style('padding', '15px 20px');
         startButton.style('font-size', '16px');
+        startButton.style('background-color', '#FF1493'); // Brighter pink
     }
     
     // CRITICAL: Use direct event handlers for iOS
@@ -346,22 +436,22 @@ function setup() {
     }
 }
 
-// Function just calls the new initAudio approach
+// Function to start audio - now just calls initAudio
 function startAudio() {
     initAudio();
 }
 
 function draw() {
-    // Completely clear the background each frame instead of semi-transparent overlay
-    background(0); // Black background without transparency
+    // Clear background
+    background(0);
     
-    // Optionally draw quadrant dividers
-    stroke(255, 255, 255, 30); // White dividers with low opacity
-    strokeWeight(1); // Keep dividers thin
-    line(width/2, 0, width/2, height); // Vertical divider
-    line(0, height/2, width, height/2); // Horizontal divider
+    // Draw quadrant dividers
+    stroke(255, 255, 255, 30);
+    strokeWeight(1);
+    line(width/2, 0, width/2, height);
+    line(0, height/2, width, height/2);
     
-    // Update and display all shapes with their own transparency
+    // Update and display shapes
     for (let i = shapes.length - 1; i >= 0; i--) {
         shapes[i].update();
         shapes[i].display();
@@ -369,12 +459,6 @@ function draw() {
         if (shapes[i].isDead()) {
             shapes.splice(i, 1);
         }
-    }
-    
-    // Check if all shapes have been removed and redraw a clean background
-    if (shapes.length === 0 && audioStarted) {
-        // All shapes have expired, ensure background is completely clean
-        background(0); // Clean black background
     }
     
     // Show audio status indicator
@@ -663,7 +747,10 @@ function touchStarted() {
     
     const noteInfo = getNoteInfo(touches[0].x, touches[0].y);
     currentShape.addPoint(touches[0].x, touches[0].y, noteInfo.midiNote);
-    debugLog(`Note recorded: ${noteInfo.noteName}`);
+    
+    // Try to play the sound directly here too
+    playSound(noteInfo.midiNote);
+    debugLog(`Note recorded on touch: ${noteInfo.noteName}`);
     
     return false; // Prevent default
 }
@@ -679,18 +766,10 @@ function touchMoved() {
         
         if (distance > 10) { // Only add points that are spaced out
             currentShape.addPoint(touches[0].x, touches[0].y, noteInfo.midiNote);
-            debugLog(`Note added on move: ${noteInfo.noteName}`);
             
-            // Extra attempt to play sound directly here as well
-            if (synth) {
-                try {
-                    const freq = Tone.Frequency(noteInfo.midiNote, "midi").toFrequency();
-                    synth.triggerAttackRelease(freq, "16n"); // Short note
-                    debugLog(`Direct note play on move: ${noteInfo.noteName}`);
-                } catch (e) {
-                    debugLog(`Error in direct note play: ${e.message}`);
-                }
-            }
+            // Try playing the sound directly here as a fallback
+            playSound(noteInfo.midiNote);
+            debugLog(`Note on move: ${noteInfo.noteName}`);
         } else {
             // Just add the point without a new note
             currentShape.addPoint(touches[0].x, touches[0].y);
@@ -701,6 +780,13 @@ function touchMoved() {
 
 function touchEnded() {
     if (currentShape) {
+        // Try playing a sound on touch end too
+        if (audioStarted && currentShape.notes.length > 0) {
+            const lastNote = currentShape.notes[currentShape.notes.length - 1].midiNote;
+            playSound(lastNote);
+            debugLog("Played end-of-shape note");
+        }
+        
         // Mark shape as complete, which will start playback
         currentShape.complete();
         debugLog(`Shape completed with ${currentShape.notes.length} notes`);
