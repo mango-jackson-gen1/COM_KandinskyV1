@@ -40,64 +40,75 @@ function debugLog(message) {
     }
 }
 
-// Direct audio initialization function
+// Direct audio initialization function - restructured for maximum reliability
 function initAudio() {
     debugLog("initAudio called by direct user interaction");
     
-    // Only initialize once
-    if (baseAudioCtx) {
-        debugLog("Audio already initialized, resuming...");
-        baseAudioCtx.resume().then(() => debugLog("Base context resumed"));
-        if (Tone.context) {
-            Tone.context.resume().then(() => debugLog("Tone context resumed"));
-        }
+    // If already initialized, just resume contexts
+    if (audioStarted) {
+        debugLog("Audio already initialized, resuming contexts");
+        if (baseAudioCtx) baseAudioCtx.resume();
+        if (Tone.context) Tone.context.resume();
         return;
     }
     
-    // Create base audio context
-    baseAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    debugLog(`Base audio context created: ${baseAudioCtx.state}`);
-    
-    // Unlock the audio context with a short sound
     try {
-        let oscillator = baseAudioCtx.createOscillator();
-        oscillator.connect(baseAudioCtx.destination);
-        oscillator.start();
-        oscillator.stop(baseAudioCtx.currentTime + 0.01);
-        debugLog("Short oscillator played to unlock audio");
+        // 1. Create the base Audio Context
+        baseAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        debugLog(`Base audio context created: ${baseAudioCtx.state}`);
         
-        // Also initialize Tone.js after unlocking base context
-        if (!audioStarted) {
-            // Short delay to ensure base context has time to unlock
-            setTimeout(() => {
-                debugLog("Now initializing Tone.js");
-                Tone.start().then(() => {
-                    debugLog(`Tone started: ${Tone.context.state}`);
+        // 2. Play a silent sound immediately
+        const oscillator = baseAudioCtx.createOscillator();
+        const gainNode = baseAudioCtx.createGain();
+        gainNode.gain.value = 0.001; // Nearly silent
+        oscillator.connect(gainNode);
+        gainNode.connect(baseAudioCtx.destination);
+        oscillator.start(0);
+        oscillator.stop(baseAudioCtx.currentTime + 0.001);
+        debugLog("Played silent oscillator to unlock audio");
+        
+        // 3. Resume the base context
+        baseAudioCtx.resume().then(() => {
+            debugLog(`Base context resumed: ${baseAudioCtx.state}`);
+            
+            // 4. Now initialize Tone.js
+            if (!audioStarted) {
+                try {
+                    // Set Tone to use our already initialized audio context
+                    Tone.setContext(baseAudioCtx);
+                    debugLog("Tone set to use the base audio context");
+                    
+                    // Initialize the synth and connect it
+                    synth = new Tone.PolySynth(Tone.Synth);
+                    synth.volume.value = -10; // Reduce volume
                     synth.toDestination();
                     Tone.Transport.start();
+                    
+                    // Update state and UI
                     audioStarted = true;
+                    startButton.html('SOUND ENABLED');
                     
-                    // Update UI
-                    if (startButton) {
-                        startButton.html('SOUND ENABLED');
-                    }
-                    
-                    // Play test note
+                    // Play test note after delay
                     setTimeout(() => {
-                        synth.triggerAttackRelease("C4", "8n");
-                        debugLog("Test note played");
-                    }, 300);
-                });
-            }, 100);
-        }
+                        try {
+                            debugLog("Trying to play test note");
+                            synth.triggerAttackRelease("C4", "8n");
+                            debugLog("Test note played successfully");
+                        } catch (e) {
+                            debugLog(`Error playing test note: ${e.message}`);
+                        }
+                    }, 500);
+                } catch (e) {
+                    debugLog(`Error initializing Tone.js: ${e.message}`);
+                }
+            }
+        }).catch(err => {
+            debugLog(`Error resuming base context: ${err.message}`);
+        });
     } catch (e) {
-        debugLog(`Error in audio unlock: ${e.message}`);
+        debugLog(`Error creating audio context: ${e.message}`);
     }
 }
-
-// Add global event listeners for audio initialization
-document.addEventListener('touchstart', initAudio, { once: true });
-document.addEventListener('click', initAudio, { once: true });
 
 // Shape class to track drawing paths
 class Shape {
@@ -245,27 +256,44 @@ function setup() {
     isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     debugLog(`Detected device: ${isMobileDevice ? (isIOS ? "iOS Mobile" : "Android Mobile") : "Desktop"}`);
     
-    // Create start button for audio with explicit dimensions
-    startButton = createButton('TAP HERE FOR SOUND');
+    // Create large prominent button for better touch target on mobile
+    startButton = createButton('TAP TO ENABLE SOUND');
     startButton.position(20, 20);
     startButton.addClass('start-button');
     if (isMobileDevice) {
         startButton.addClass('mobile');
+        // Make button bigger on mobile
+        startButton.style('padding', '15px 20px');
+        startButton.style('font-size', '16px');
     }
     
-    // Simple button handler that calls the global initAudio function
-    startButton.mousePressed(() => {
-        debugLog("Button pressed");
+    // CRITICAL: Use direct event handlers for iOS
+    startButton.elt.addEventListener('touchstart', function(e) {
+        debugLog("Direct touchstart on button");
+        e.preventDefault();
+        e.stopPropagation();
         initAudio();
         return false;
-    });
+    }, false);
     
-    // For touch specifically
-    startButton.touchStarted(() => {
-        debugLog("Button touched");
+    startButton.elt.addEventListener('click', function(e) {
+        debugLog("Direct click on button");
+        e.preventDefault();
+        e.stopPropagation();
         initAudio();
         return false;
-    });
+    }, false);
+    
+    // Add global event listeners that will catch any user interaction
+    document.addEventListener('touchstart', function() {
+        debugLog("Document touchstart");
+        if (!audioStarted) initAudio();
+    }, {once: true});
+    
+    document.addEventListener('click', function() {
+        debugLog("Document click");
+        if (!audioStarted) initAudio();
+    }, {once: true});
     
     // Store button dimensions for collision detection
     setTimeout(() => {
@@ -274,31 +302,27 @@ function setup() {
             height: startButton.elt.offsetHeight
         };
         debugLog(`Button dimensions: ${startButton.size.width} x ${startButton.size.height}`);
-    }, 100); // Short delay to ensure button is fully rendered
+    }, 100);
     
-    // Initialize Tone.js synth but don't connect it yet
-    synth = new Tone.PolySynth(Tone.Synth);
-    synth.volume.value = -10; // Reduce volume
+    // Important: DON'T initialize Tone.js until user interaction
+    // Just create a placeholder for the synth
+    synth = null;
     
-    // Display instructions with 30% smaller text
+    // Display instructions
     textAlign(CENTER, CENTER);
     fill(255);
     noStroke();
-    // Responsive text size, 30% smaller
-    const fontSize = min(24, windowWidth / 25) * 0.7; // 30% smaller
+    const fontSize = min(24, windowWidth / 25) * 0.7;
     textSize(fontSize);
-    text('TAP THE PINK BUTTON TO ACTIVATE SOUND', width/2, height/2);
+    text('TAP THE PINK BUTTON TO ENABLE SOUND', width/2, height/2);
     
-    // Add additional mobile instruction if on a mobile device
     if (isMobileDevice) {
         textSize(fontSize * 0.8);
-        text('Sound requires user interaction on mobile', width/2, height/2 + 30);
+        text('Touch interaction required for sound on mobile', width/2, height/2 + 30);
     }
 }
 
-// Old iOS handling code removed and replaced with the new initAudio approach
-
-// Replace previous startAudio function with a call to the new initAudio function
+// Function just calls the new initAudio approach
 function startAudio() {
     initAudio();
 }
@@ -540,8 +564,8 @@ function drawDebugPanel() {
     
     // Audio context state
     let contextInfo = "Audio Context: ";
-    if (Tone.context) {
-        contextInfo += `${Tone.context.state} (${audioStarted ? "Started" : "Not Started"})`;
+    if (baseAudioCtx) {
+        contextInfo += `${baseAudioCtx.state} (${audioStarted ? "Started" : "Not Started"})`;
     } else {
         contextInfo += "Not initialized";
     }
@@ -555,7 +579,7 @@ function drawDebugPanel() {
     }
 }
 
-// Replace previous handleStartButtonPress with a simpler version
+// Direct handler for button press events
 function handleStartButtonPress() {
     debugLog("Start button handler called");
     if (window.event) {
@@ -570,23 +594,23 @@ function touchStarted() {
     // Early exit if no touches
     if (!touches || touches.length === 0) return false;
     
-    debugLog(`Touch started at ${touches[0].x},${touches[0].y}. Audio: ${audioStarted}`);
+    debugLog(`Touch started at ${touches[0].x},${touches[0].y}`);
     
-    // Check if button pressed (keep this for direct button touches)
+    // Handle touch on button
     if (startButton) {
-        const buffer = 20; // Bigger buffer for mobile
+        const buffer = 20;
         if (touches[0].x >= startButton.x - buffer && 
             touches[0].x <= startButton.x + startButton.size.width + buffer &&
             touches[0].y >= startButton.y - buffer && 
             touches[0].y <= startButton.y + startButton.size.height + buffer) {
             
-            debugLog("Touch on start button");
+            debugLog("Touch on button detected");
             initAudio();
-            return false; // Prevent default
+            return false;
         }
     }
 
-    // If audio context exists but not running, try to resume
+    // Resume contexts if needed on any touch
     if (baseAudioCtx && baseAudioCtx.state !== 'running') {
         debugLog("Resuming base context on touch");
         baseAudioCtx.resume();
@@ -597,37 +621,26 @@ function touchStarted() {
         Tone.context.resume();
     }
 
-    // Prevent default to stop scrolling/zooming
-    if (touches.length === 1) {
-        if (!audioStarted) {
-            // If click is on canvas but not on button, remind user
-            fill(255);
-            noStroke();
-            textAlign(CENTER, CENTER);
-            const fontSize = min(24, windowWidth / 25) * 0.7; // 30% smaller
-            textSize(fontSize);
-            text('Please enable sound first!', width/2, height/2 + 30);
-            if (isMobileDevice) {
-                textSize(fontSize * 0.8);
-                text('(Tap the pink button in the top-left)', width/2, height/2 + 60);
-            }
-            return false;
-        }
-        
-        // Clean up any expired shapes before starting a new one
-        cleanupExpiredShapes();
-        
-        isDrawing = true;
-        currentShape = new Shape(touches[0].x, touches[0].y);
-        shapes.push(currentShape);
-        
-        // Get note information
-        const noteInfo = getNoteInfo(touches[0].x, touches[0].y);
-        currentShape.addPoint(touches[0].x, touches[0].y, noteInfo.midiNote);
-        
-        // Log note information
-        debugLog(`Note recorded: ${noteInfo.noteName}`);
+    // Don't allow drawing until audio is enabled
+    if (!audioStarted) {
+        fill(255);
+        noStroke();
+        textAlign(CENTER, CENTER);
+        const fontSize = min(24, windowWidth / 25) * 0.7;
+        textSize(fontSize);
+        text('Please enable sound first!', width/2, height/2 + 40);
+        return false;
     }
+    
+    // Start drawing
+    isDrawing = true;
+    currentShape = new Shape(touches[0].x, touches[0].y);
+    shapes.push(currentShape);
+    
+    const noteInfo = getNoteInfo(touches[0].x, touches[0].y);
+    currentShape.addPoint(touches[0].x, touches[0].y, noteInfo.midiNote);
+    debugLog(`Note recorded: ${noteInfo.noteName}`);
+    
     return false; // Prevent default
 }
 
@@ -642,7 +655,7 @@ function touchMoved() {
         
         if (distance > 10) { // Only add points that are spaced out
             currentShape.addPoint(touches[0].x, touches[0].y, noteInfo.midiNote);
-            console.log("Note recorded on touchMoved:", noteInfo.noteName);
+            debugLog(`Note added on move: ${noteInfo.noteName}`);
         } else {
             // Just add the point without a new note
             currentShape.addPoint(touches[0].x, touches[0].y);
@@ -655,7 +668,7 @@ function touchEnded() {
     if (currentShape) {
         // Mark shape as complete, which will start playback
         currentShape.complete();
-        console.log("Shape completed with", currentShape.notes.length, "notes");
+        debugLog(`Shape completed with ${currentShape.notes.length} notes`);
     }
     
     isDrawing = false;
