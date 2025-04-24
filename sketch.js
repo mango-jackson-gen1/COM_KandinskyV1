@@ -79,8 +79,15 @@ function initAudio() {
                     debugLog("Tone set to use the base audio context");
                     
                     // Initialize the synth and connect it
-                    synth = new Tone.PolySynth(Tone.Synth);
-                    synth.volume.value = -10; // Reduce volume
+                    synth = new Tone.PolySynth(Tone.Synth, {
+                        envelope: {
+                            attack: 0.005,
+                            decay: 0.1,
+                            sustain: 0.3,
+                            release: 0.1
+                        }
+                    });
+                    synth.volume.value = -6; // Make it louder than before (-10)
                     synth.toDestination();
                     Tone.Transport.start();
                     
@@ -88,16 +95,22 @@ function initAudio() {
                     audioStarted = true;
                     startButton.html('SOUND ENABLED');
                     
-                    // Play test note after delay
+                    // Play multiple test notes to ensure audio is working
                     setTimeout(() => {
                         try {
-                            debugLog("Trying to play test note");
-                            synth.triggerAttackRelease("C4", "8n");
-                            debugLog("Test note played successfully");
+                            debugLog("Playing multiple test notes");
+                            
+                            // Play C major scale as test
+                            for (let i = 0; i < 5; i++) {
+                                setTimeout(() => {
+                                    synth.triggerAttackRelease(Tone.Frequency(60 + i, "midi").toFrequency(), "8n");
+                                    debugLog(`Test note ${i+1} played`);
+                                }, i * 200);
+                            }
                         } catch (e) {
-                            debugLog(`Error playing test note: ${e.message}`);
+                            debugLog(`Error playing test notes: ${e.message}`);
                         }
-                    }, 500);
+                    }, 300);
                 } catch (e) {
                     debugLog(`Error initializing Tone.js: ${e.message}`);
                 }
@@ -149,6 +162,17 @@ class Shape {
                 midiNote: note,
                 position: this.points.length - 1 // Index of the point this note corresponds to
             });
+            
+            // Play the note immediately while drawing
+            if (audioStarted && synth) {
+                try {
+                    const freq = Tone.Frequency(note, "midi").toFrequency();
+                    synth.triggerAttackRelease(freq, "16n"); // Short note during drawing
+                    debugLog(`Playing note during drawing: ${Tone.Frequency(note, "midi").toNote()}`);
+                } catch (e) {
+                    debugLog(`Error playing note during drawing: ${e.message}`);
+                }
+            }
         }
     }
 
@@ -645,7 +669,7 @@ function touchStarted() {
 }
 
 function touchMoved() {
-    if (isDrawing && currentShape && touches.length === 1) {
+    if (isDrawing && currentShape && touches.length === 1 && audioStarted) {
         // Get note information
         const noteInfo = getNoteInfo(touches[0].x, touches[0].y);
         
@@ -656,6 +680,17 @@ function touchMoved() {
         if (distance > 10) { // Only add points that are spaced out
             currentShape.addPoint(touches[0].x, touches[0].y, noteInfo.midiNote);
             debugLog(`Note added on move: ${noteInfo.noteName}`);
+            
+            // Extra attempt to play sound directly here as well
+            if (synth) {
+                try {
+                    const freq = Tone.Frequency(noteInfo.midiNote, "midi").toFrequency();
+                    synth.triggerAttackRelease(freq, "16n"); // Short note
+                    debugLog(`Direct note play on move: ${noteInfo.noteName}`);
+                } catch (e) {
+                    debugLog(`Error in direct note play: ${e.message}`);
+                }
+            }
         } else {
             // Just add the point without a new note
             currentShape.addPoint(touches[0].x, touches[0].y);
