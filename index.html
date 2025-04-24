@@ -7,6 +7,64 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <link rel="stylesheet" href="style.css" />
+    <script>
+      // iOS Audio Unlock Workaround
+      window.AudioContext = window.AudioContext || window.webkitAudioContext;
+      let AUDIO_CONTEXT_UNLOCKED = false;
+      
+      // This needs to be defined in the global scope for iOS
+      function unlockAudioContext() {
+        if (AUDIO_CONTEXT_UNLOCKED) return;
+        
+        // Create an audio context
+        const audioCtx = new AudioContext();
+        console.log("Audio context created:", audioCtx.state);
+        
+        // Function to unlock
+        function unlock() {
+          if (AUDIO_CONTEXT_UNLOCKED) return;
+          
+          console.log("Trying to unlock audio...");
+          
+          // Play a silent sound immediately
+          const buffer = audioCtx.createBuffer(1, 1, 22050);
+          const source = audioCtx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(audioCtx.destination);
+          source.start(0);
+          source.onended = function() {
+            source.disconnect(0);
+            console.log("Silent source ended");
+          };
+          
+          // Resume the audio context
+          audioCtx.resume().then(() => {
+            console.log("Audio context resumed:", audioCtx.state);
+            AUDIO_CONTEXT_UNLOCKED = true;
+            document.getElementById("overlay").style.display = "none";
+          });
+        }
+        
+        // Unlock on various events
+        document.addEventListener('touchstart', unlock, false);
+        document.addEventListener('touchend', unlock, false);
+        document.addEventListener('click', unlock, false);
+      }
+      
+      // Call this as soon as the page loads
+      window.addEventListener('DOMContentLoaded', function() {
+        console.log("DOM loaded, setting up audio unlock");
+        
+        // Create overlay for first interaction
+        const overlay = document.createElement('div');
+        overlay.id = "overlay";
+        overlay.innerHTML = '<div id="tap-message">TAP ANYWHERE TO ENABLE SOUND</div>';
+        document.body.appendChild(overlay);
+        
+        // Set up audio unlock
+        unlockAudioContext();
+      });
+    </script>
   </head>
   <body>
     <script src="sketch.js"></script>

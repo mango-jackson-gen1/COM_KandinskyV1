@@ -118,6 +118,63 @@ function playSound(midiNote) {
 function initAudio() {
     debugLog("initAudio called by direct user interaction");
     
+    // Check if global audio context is unlocked
+    if (window.AUDIO_CONTEXT_UNLOCKED) {
+        debugLog("Using globally unlocked audio context");
+        
+        // If we already started our audio, just make sure it's running
+        if (audioStarted) {
+            if (baseAudioCtx) baseAudioCtx.resume();
+            if (Tone.context) Tone.context.resume();
+            debugLog("Audio already initialized - resumed contexts");
+            return;
+        }
+        
+        try {
+            // Get the existing global audio context
+            const existingContext = new (window.AudioContext || window.webkitAudioContext)();
+            debugLog(`Existing audio context state: ${existingContext.state}`);
+            
+            // Use this context for our app
+            baseAudioCtx = existingContext;
+            Tone.setContext(existingContext);
+            
+            // Create and connect synth
+            synth = new Tone.PolySynth(Tone.Synth, {
+                envelope: {
+                    attack: 0.005,
+                    decay: 0.1,
+                    sustain: 0.3,
+                    release: 0.1
+                }
+            });
+            synth.volume.value = 0; // Full volume
+            synth.toDestination();
+            Tone.Transport.start();
+            
+            // Update state
+            audioStarted = true;
+            startButton.html('SOUND ENABLED');
+            debugLog("Audio successfully initialized with global context");
+            
+            // Play test sounds
+            setTimeout(() => {
+                debugLog("Playing test sounds");
+                for (let i = 0; i < 3; i++) {
+                    setTimeout(() => {
+                        playSound(60 + i);
+                    }, i * 300);
+                }
+            }, 300);
+            
+            return; // Exit early - we're done
+        } catch (e) {
+            debugLog(`Error setting up with global context: ${e.message}`);
+        }
+    }
+    
+    // If global audio context isn't available or failed, continue with original method
+    
     // If already initialized, just resume contexts
     if (audioStarted) {
         debugLog("Audio already initialized, resuming contexts");
@@ -408,6 +465,21 @@ function setup() {
         debugLog("Document click");
         if (!audioStarted) initAudio();
     }, {once: true});
+    
+    // Add handlers to check for the global unlock
+    document.addEventListener('click', function() {
+        if (window.AUDIO_CONTEXT_UNLOCKED && !audioStarted) {
+            debugLog("Global context unlocked - initializing audio");
+            initAudio();
+        }
+    }, false);
+
+    document.addEventListener('touchstart', function() {
+        if (window.AUDIO_CONTEXT_UNLOCKED && !audioStarted) {
+            debugLog("Global context unlocked - initializing audio on touch");
+            initAudio();
+        }
+    }, false);
     
     // Store button dimensions for collision detection
     setTimeout(() => {
