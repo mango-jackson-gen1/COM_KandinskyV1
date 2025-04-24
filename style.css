@@ -2,9 +2,48 @@ body {
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background-color: #000;
+    background-color: #c80000; /* Red background to match sketch.js */
+    touch-action: none; /* Prevents default touch behaviors */
+    position: fixed; /* Prevents overscroll/bounce */
+    width: 100%;
+    height: 100%;
 }
 
 canvas {
     display: block;
+    touch-action: none; /* Ensures touch events are captured properly */
 } 
+
+.start-button {
+    padding: 10px 15px;
+    font-size: 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    z-index: 100;
+    transition: all 0.3s ease;
+    /* Adjust button size on small screens */
+    max-width: 90%;
+    box-sizing: border-box;
+}
+
+/* Make button bigger on touch devices for better tap targets */
+@media (max-width: 768px) {
+    .start-button {
+        padding: 15px 20px;
+        font-size: 18px;
+    }
+}
+
+.start-button:hover {
+    background-color: #45a049;
+    transform: scale(1.05);
+}
+
+.start-button:active {
+    background-color: #367c39;
+}
+
+ 

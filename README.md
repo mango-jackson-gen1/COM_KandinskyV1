@@ -1,6 +1,6 @@
 # Interactive Drawing & Sound 🎨🎵
 
-An interactive web application that transforms user drawings into musical notes using p5.js for visuals and Tone.js for sound synthesis. As users draw on the canvas, their cursor movements generate musical notes mapped to the C Major scale, with different drawing motions triggering distinct sound behaviors.
+An interactive web application that transforms user drawings into musical notes using p5.js for visuals and Tone.js for sound synthesis. As users draw on the canvas, their cursor movements generate musical notes mapped to different musical scales across four distinct quadrants of the canvas.
 
 ## 🚀 Getting Started
 
@@ -8,6 +8,7 @@ An interactive web application that transforms user drawings into musical notes 
 
 - Web browser (Chrome recommended)
 - No server needed, runs locally with any static file server (e.g. VSCode Live Server)
+- Works on desktop and mobile devices (iPhone, iPad, Android)
 
 ### Project Structure
 
@@ -15,155 +16,117 @@ An interactive web application that transforms user drawings into musical notes 
 - `sketch.js` – core drawing + sound logic
 - `style.css` – optional styling
 
+## 🎵 Key Features
+
+### Multi-Scale Musical Mapping
+
+- **Top-Left Quadrant**: C Major scale
+- **Top-Right Quadrant**: A Major scale
+- **Bottom-Left Quadrant**: G Major scale
+- **Bottom-Right Quadrant**: F Major scale
+
+### Responsive Design
+
+- Fully responsive canvas that adapts to any screen size
+- Mobile-optimized interface with touch support
+- Works on desktop, tablet, and smartphone devices
+
+### Interactive Audio
+
+- Audio initialization button to comply with browser policies
+- Visual feedback for audio status
+- Shape-based sound playback system
+- Test sound confirms audio is working
+
 ## 🖼️ Canvas Setup
 
 The application initializes with:
 
 - Full-screen canvas using `createCanvas(windowWidth, windowHeight)`
 - Basic styling (stroke, fill, background color)
-- Audio context from Tone.js (triggered on first user interaction)
+- Audio context from Tone.js (triggered by user interaction)
 - Compliance with browser audio policies
+- Dynamic resizing for all devices
 
 ## 🎨 Drawing Loop
 
 The `draw()` function operates at ~60 FPS and handles:
 
 - Background fade for motion trails
-- Iteration through all visual elements
-- Mouse position tracking for:
-  - Shape drawing
-  - Path length computation
-  - Sound triggering based on movement thresholds
+- Iteration through all visual shapes
+- Audio status indication
+- Quadrant visualization
 
 ## 🖱️ User Interaction
 
-### Mouse Events
+### Input Events
 
-#### mousePressed()
+#### Mouse Events (Desktop)
 
-- Initiates new drawing stroke
-- Creates new Shape object
-- Triggers short note for "dot" gestures
-- Starts audio context if not already active
+- `mousePressed()`: Initiates new drawing stroke
+- `mouseDragged()`: Extends current stroke path
+- `mouseReleased()`: Finalizes current shape
 
-#### mouseDragged()
+#### Touch Events (Mobile)
 
-- Extends current stroke path
-- Tracks path distance
-- Triggers notes based on movement
-- Updates shape properties
+- `touchStarted()`: Begins drawing on mobile devices
+- `touchMoved()`: Continues stroke on mobile devices
+- `touchEnded()`: Completes shape on mobile devices
 
-#### mouseReleased()
+## 🎵 Sound System
 
-- Finalizes current shape
-- Handles shape completion
-- Manages sound release
+### Audio Initialization
 
-## 🔁 Object Management
+- Click "Enable Sound" button to start audio
+- Visual indicator shows audio status (red/green)
+- Test sound plays to confirm audio is working
+- Prevents drawing until sound is enabled
 
-### Shape Class
+### Shape-Based Playback
 
-Each drawn item is managed through a Shape class that tracks:
-
-- Path points array
-- Total path length
-- Creation timestamp
-- Lifecycle status
-- Fade-out properties
-
-### Shape Lifecycle
-
-- **Creation**: Starts on `mousePressed` event
-- **Growth**: Continues during `mouseDragged` events
-- **Completion**: Ends on `mouseReleased` event
-- **Fade-out**: Shapes automatically fade out over 5 seconds
-- **Cleanup**: Shapes are removed from memory after fade-out
+Each completed shape becomes a musical sequence:
+- Shape points determine note sequence
+- Notes play back automatically along the path
+- Visual indicator shows current playing position
+- Multiple shapes create layered musical patterns
 
 ## 🔊 Sound Mapping
 
 ### Sound Engine
 
 - Powered by Tone.js PolySynth
-- Supports overlapping notes
 - Volume set to -10 dB for comfortable listening
 
 ### Scale Mapping
 
-- C Major scale (C4 to C5)
-- MIDI values: [60, 62, 64, 65, 67, 69, 71, 72]
-- Horizontal position mapping:
-  - Left edge → C4 (60)
-  - Right edge → C5 (72)
-  - Linear interpolation between notes
+Each quadrant of the canvas uses a different musical scale:
+- **Top-Left**: C Major [60, 62, 64, 65, 67, 69, 71, 72]
+- **Top-Right**: A Major [69, 71, 72, 74, 76, 77, 79, 81]
+- **Bottom-Left**: G Major [67, 69, 71, 72, 74, 76, 77, 79]
+- **Bottom-Right**: F Major [65, 67, 69, 71, 73, 74, 76, 77]
 
-### Gesture Sound Logic
+## 📱 Mobile-Specific Features
 
-- **Dots** (path length ≤ 10px):
+- Touch event handling
+- Prevents scrolling/zooming during drawing
+- Larger button targets for easier interaction
+- Responsive text sizing based on screen width
+- Fixed positioning to prevent bounce effects
+- Dedicated mobile CSS styles
 
-  - Duration: 1/8 note
-  - Short, staccato sound
-  - Single note trigger
 
-- **Lines** (path length > 10px):
-  - Duration: 1/4 note
-  - Longer, sustained sound
-  - Continuous note triggering
-
-### Future Expansion
-
-- Drawing speed → note velocity mapping
-- Vertical movement → volume modulation
-- Path complexity → sound texture
-
-## ⚠️ Edge Cases
-
-### Audio Context
-
-- Starts only on first user interaction
-- Prevents browser autoplay restrictions
-- Handled in `mousePressed` event
-
-### Drawing Edge Cases
-
-1. **Rapid Movement**
-
-   - Path points captured at frame rate
-   - No interpolation between points
-   - May result in jagged lines
-
-2. **Canvas Boundaries**
-
-   - Drawing continues beyond edges
-   - Points still recorded
-   - Sound continues to play
-
-3. **Multiple Shapes**
-
-   - Supports concurrent shapes
-   - Independent lifecycles
-   - No shape limit
-
-4. **Window Resizing**
-   - Automatic canvas resizing
-   - Shape position maintenance
-   - Sound mapping adjustment
-
-### Performance Considerations
-
-- Automatic shape cleanup
-- No concurrent shape limit
-- Background fade impact
-- Frame rate maintenance
 
 ## 💡 Usage Tips
 
-1. Open `index.html` in a web browser
-2. Experiment with different drawing styles:
-   - Quick taps for staccato notes
-   - Slow movements for sustained notes
-   - Horizontal movement to change pitch
-3. Combine techniques for complex sound patterns
-4. Drawings automatically fade out after 5 seconds
+1. Open the app in any modern browser (desktop or mobile)
+2. Click/tap the "Enable Sound" button in the top-left corner
+3. Draw in different quadrants to create melodies in different scales:
+   - Top-left for C Major 
+   - Top-right for A Major
+   - Bottom-left for G Major
+   - Bottom-right for F Major
+4. Create multiple shapes to build layered musical patterns
+5. Shapes will automatically fade out over time
 
 ## 🔧 Technical Implementation
 
@@ -172,20 +135,25 @@ Each drawn item is managed through a Shape class that tracks:
 ```javascript
 class Shape {
   constructor(x, y) {
-    this.points = [{ x, y }];
+    this.points = [{x, y}];
     this.pathLength = 0;
     this.createdAt = millis();
-    this.lifespan = 5000;
+    this.lifespan = 10000; // 10 seconds lifespan
     this.isDot = true;
     this.color = color(255, 255, 255, 255);
+    this.notes = []; // Array to store notes along this path
+    this.lastPlayTime = 0; // Track when we last played this shape
+    this.isComplete = false; // Flag to indicate if drawing is complete
+    this.playbackIndex = 0; // Current index during playback
   }
   // ... methods for updating and displaying
 }
 ```
 
-### Drawing Loop Mechanics
+### Responsive Design Implementation
 
-- 60 FPS update rate
-- Shape update and display
-- Fade-out and cleanup
-- Motion trail maintenance
+- Dynamic canvas resizing with `windowResized()`
+- Touch event handling for mobile devices
+- Viewport meta tags to prevent scaling
+- Media queries for different screen sizes
+- Touch action prevention for smoother drawing
