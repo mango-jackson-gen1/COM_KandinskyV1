@@ -102,7 +102,7 @@ class Shape {
         
         // Solid pink color without transparency
         stroke(this.baseColor);
-        strokeWeight(10);
+        strokeWeight(3); // Reduced to 3 pixels thick
         
         // Draw line segments, omitting points that have faded
         if (this.points.length > 1) {
@@ -120,10 +120,10 @@ class Shape {
             
             // Only draw highlight if this point hasn't faded yet
             if (activeNote.position >= this.fadeIndex) {
-                // Draw a larger indicator at the active point (yellow)
+                // Draw a smaller indicator at the active point (yellow)
                 fill(255, 255, 0); // Yellow highlight
                 noStroke();
-                ellipse(activePoint.x, activePoint.y, 16, 16);
+                ellipse(activePoint.x, activePoint.y, 8, 8); // Reduced size to match thinner lines
             }
         }
     }
@@ -154,7 +154,7 @@ function setup() {
     createCanvas(windowWidth, windowHeight);
     background(0); // Black background
     stroke(255, 105, 180); // Pink stroke for lines
-    strokeWeight(10); // 10 pixels thick
+    strokeWeight(3); // Reduced to 3 pixels thick
     noFill();
     
     // Check if device is mobile
