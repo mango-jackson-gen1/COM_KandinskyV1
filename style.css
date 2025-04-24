@@ -2,7 +2,7 @@ body {
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background-color: #c80000; /* Red background to match sketch.js */
+    background-color: #000000; /* Black background to match sketch.js */
     touch-action: none; /* Prevents default touch behaviors */
     position: fixed; /* Prevents overscroll/bounce */
     width: 100%;
@@ -15,9 +15,9 @@ canvas {
 } 
 
 .start-button {
-    padding: 10px 15px;
-    font-size: 16px;
-    background-color: #4CAF50;
+    padding: 7px 10px; /* 30% smaller padding */
+    font-size: 11px; /* 30% smaller font */
+    background-color: #FF69B4; /* Pink background */
     color: white;
     border: none;
     border-radius: 5px;
@@ -27,23 +27,52 @@ canvas {
     /* Adjust button size on small screens */
     max-width: 90%;
     box-sizing: border-box;
+    /* Improve button appearance */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    -webkit-tap-highlight-color: transparent; /* Remove tap highlight on iOS */
 }
 
-/* Make button bigger on touch devices for better tap targets */
+/* Mobile-specific styles */
+.start-button.mobile {
+    padding: 10px 14px; /* 30% smaller than original mobile padding */
+    font-size: 13px;    /* 30% smaller than original mobile font */
+    min-width: 105px;   /* 30% smaller than original 150px */
+    min-height: 31px;   /* 30% smaller than 44px */
+}
+
+/* Make button bigger on touch devices for better tap targets but still 30% smaller than original */
 @media (max-width: 768px) {
     .start-button {
-        padding: 15px 20px;
-        font-size: 18px;
+        padding: 10px 14px;
+        font-size: 13px;
+        min-height: 31px; /* 30% smaller than 44px */
     }
 }
 
 .start-button:hover {
-    background-color: #45a049;
+    background-color: #FF5BA7; /* Lighter pink on hover */
     transform: scale(1.05);
 }
 
 .start-button:active {
-    background-color: #367c39;
+    background-color: #D84F9A; /* Darker pink when active */
+    transform: scale(0.98); /* Slight press effect */
+}
+
+/* Add specific fix for iOS Safari */
+@supports (-webkit-touch-callout: none) {
+    body {
+        /* iOS-specific fix to prevent overscroll issues */
+        position: fixed;
+        width: 100%;
+        height: 100%;
+    }
+
+    .start-button {
+        /* iOS Safari specific enhancements */
+        -webkit-appearance: none; /* Remove default styling */
+        transform: translateZ(0); /* Force hardware acceleration */
+    }
 }
 
  

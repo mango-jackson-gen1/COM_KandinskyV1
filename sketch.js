@@ -19,16 +19,21 @@ let isMobileDevice = false;
 // Shape class to track drawing paths
 class Shape {
     constructor(x, y) {
-        this.points = [{x, y}];
+        this.points = [{x, y, index: 0}]; // Track the index of each point
         this.pathLength = 0;
         this.createdAt = millis();
-        this.lifespan = 5000; // Reduced to 5 seconds lifespan for quicker cleanup
+        this.lifespan = 5000; // 5 seconds lifespan for cleanup
         this.isDot = true;
-        this.color = color(0, 0, 255, 255); // Blue color for lines
+        this.baseColor = color(255, 105, 180); // Hot pink base color
+        this.color = color(255, 105, 180, 255); // Pink color for lines with alpha
         this.notes = []; // Array to store notes along this path
         this.lastPlayTime = 0; // Track when we last played this shape
         this.isComplete = false; // Flag to indicate if drawing is complete
         this.playbackIndex = 0; // Current index during playback
+        this.fadeIndex = 0; // Current fade index for pixel-by-pixel fading
+        this.fadeStartTime = 0; // When the fade started
+        this.fadeDelay = 50; // Milliseconds between fading each point
+        this.lastFadeTime = 0; // Time of last fade progression
     }
 
     addPoint(x, y, note) {
@@ -41,7 +46,8 @@ class Shape {
             this.isDot = false;
         }
         
-        this.points.push({x, y});
+        // Store point with its index in the sequence
+        this.points.push({x, y, index: this.points.length});
         
         // Store the note with this point
         if (note !== undefined) {
@@ -53,16 +59,27 @@ class Shape {
     }
 
     update() {
-        const age = millis() - this.createdAt;
-        // Calculate alpha based on age
-        const alpha = map(age, 0, this.lifespan, 255, 0);
-        // Update color with new alpha
-        this.color = color(0, 0, 255, alpha);
+        const currentTime = millis();
+        const age = currentTime - this.createdAt;
+        
+        // Start fading points after the shape is complete and half the lifespan has passed
+        if (this.isComplete && age > this.lifespan * 0.5 && this.fadeStartTime === 0) {
+            this.fadeStartTime = currentTime;
+            this.lastFadeTime = currentTime;
+            console.log("Starting pixel fade");
+        }
+        
+        // If fade has started, progress the fade index at a steady rate
+        if (this.fadeStartTime > 0 && currentTime - this.lastFadeTime > this.fadeDelay) {
+            // Move the fade index forward if there are still points to fade
+            if (this.fadeIndex < this.points.length) {
+                this.fadeIndex++;
+                this.lastFadeTime = currentTime;
+            }
+        }
         
         // Only play back completed shapes
         if (this.isComplete && this.notes.length > 0) {
-            const currentTime = millis();
-            
             // Check if it's time to play the next note (every 200ms)
             if (currentTime - this.lastPlayTime > 200) {
                 // Play the current note in the sequence
@@ -80,39 +97,51 @@ class Shape {
     }
 
     display() {
-        // Set the stroke color with the current alpha
-        stroke(this.color);
-        strokeWeight(2);
-        noFill();
+        // If all points are faded, don't draw anything
+        if (this.fadeIndex >= this.points.length) return;
         
-        // Draw the shape
-        beginShape();
-        for (let point of this.points) {
-            vertex(point.x, point.y);
+        // Solid pink color without transparency
+        stroke(this.baseColor);
+        strokeWeight(10);
+        
+        // Draw line segments, omitting points that have faded
+        if (this.points.length > 1) {
+            for (let i = this.fadeIndex; i < this.points.length - 1; i++) {
+                const point = this.points[i];
+                const nextPoint = this.points[i+1];
+                line(point.x, point.y, nextPoint.x, nextPoint.y);
+            }
         }
-        endShape();
         
         // If shape is complete and currently playing, highlight the active point
         if (this.isComplete && this.notes.length > 0 && this.playbackIndex < this.notes.length) {
             const activeNote = this.notes[this.playbackIndex];
             const activePoint = this.points[activeNote.position];
             
-            // Draw a small indicator at the active point (yellow with same alpha)
-            fill(255, 255, 0, this.color.levels[3]); // Yellow with same alpha as the shape
-            noStroke();
-            ellipse(activePoint.x, activePoint.y, 8, 8);
+            // Only draw highlight if this point hasn't faded yet
+            if (activeNote.position >= this.fadeIndex) {
+                // Draw a larger indicator at the active point (yellow)
+                fill(255, 255, 0); // Yellow highlight
+                noStroke();
+                ellipse(activePoint.x, activePoint.y, 16, 16);
+            }
         }
     }
 
     isDead() {
-        // A shape is dead if it has existed longer than its lifespan
-        // or if it's completed playing all its notes at least once
+        // A shape is dead if all its points have faded out
+        const allPointsFaded = this.fadeIndex >= this.points.length;
+        
+        // Or if it has existed longer than its lifespan
         const hasExpired = millis() - this.createdAt > this.lifespan;
+        
+        // Or if it has played all notes and waited a bit
         const hasPlayedAllNotes = this.isComplete && 
                                  this.notes.length > 0 && 
-                                 this.playbackIndex >= this.notes.length;
+                                 this.playbackIndex >= this.notes.length &&
+                                 millis() - this.lastPlayTime > 1000;
                                  
-        return hasExpired || (hasPlayedAllNotes && millis() - this.lastPlayTime > 1000);
+        return allPointsFaded || hasExpired || hasPlayedAllNotes;
     }
     
     complete() {
@@ -123,13 +152,14 @@ class Shape {
 
 function setup() {
     createCanvas(windowWidth, windowHeight);
-    background(200, 0, 0); // Red background
-    stroke(0, 0, 255); // Blue stroke for lines
-    strokeWeight(2);
+    background(0); // Black background
+    stroke(255, 105, 180); // Pink stroke for lines
+    strokeWeight(10); // 10 pixels thick
     noFill();
     
     // Check if device is mobile
     isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    console.log("Detected device type:", isMobileDevice ? "Mobile" : "Desktop");
     
     // Adjust button and text size for mobile
     const buttonSize = isMobileDevice ? 18 : 16;
@@ -143,31 +173,38 @@ function setup() {
         startButton.addClass('mobile');
     }
     
-    // Make sure we properly track button click events without triggering canvas events
-    startButton.mousePressed(function() {
-        // Prevent event propagation
-        window.event.stopPropagation();
-        startAudio();
-    });
+    // Enhanced touch/click handling for the start button
+    // Handle both mousePressed and touchStarted events for cross-device compatibility
+    startButton.mousePressed(handleStartButtonPress);
+    startButton.touchStarted(handleStartButtonPress);
     
     // Store button dimensions for collision detection
-    startButton.size = {
-        width: startButton.elt.offsetWidth,
-        height: startButton.elt.offsetHeight
-    };
+    setTimeout(() => {
+        startButton.size = {
+            width: startButton.elt.offsetWidth,
+            height: startButton.elt.offsetHeight
+        };
+        console.log("Button dimensions:", startButton.size.width, "x", startButton.size.height);
+    }, 100); // Short delay to ensure button is fully rendered
     
     // Initialize Tone.js synth but don't connect it yet
     synth = new Tone.PolySynth(Tone.Synth);
     synth.volume.value = -10; // Reduce volume
     
-    // Display instructions
+    // Display instructions with 30% smaller text
     textAlign(CENTER, CENTER);
     fill(255);
     noStroke();
-    // Responsive text size
-    const fontSize = min(24, windowWidth / 25);
+    // Responsive text size, 30% smaller
+    const fontSize = min(24, windowWidth / 25) * 0.7; // 30% smaller
     textSize(fontSize);
     text('Click the button in the top-left corner to enable sound', width/2, height/2);
+    
+    // Add additional mobile instruction if on a mobile device
+    if (isMobileDevice) {
+        textSize(fontSize * 0.8);
+        text('(Tap the pink button)', width/2, height/2 + 30); // Adjusted position for smaller text
+    }
 }
 
 // Function to start audio with user interaction
@@ -191,8 +228,9 @@ function startAudio() {
         Tone.Transport.start();
         
         audioStarted = true;
+        // Change text but keep button pink
         startButton.html('Sound Enabled');
-        startButton.style('background-color', '#00FF00');
+        // Don't change background color, keep it pink
         
         // Test sound to confirm audio is working
         setTimeout(() => {
@@ -203,17 +241,18 @@ function startAudio() {
     }).catch(error => {
         console.error("Failed to start Tone.js:", error);
         startButton.html('Sound Failed - Try Again');
+        // Use a red background for errors
         startButton.style('background-color', '#FF0000');
     });
 }
 
 function draw() {
     // Completely clear the background each frame instead of semi-transparent overlay
-    background(200, 0, 0); // Solid red background without transparency
+    background(0); // Black background without transparency
     
     // Optionally draw quadrant dividers
     stroke(255, 255, 255, 30); // White dividers with low opacity
-    strokeWeight(1);
+    strokeWeight(1); // Keep dividers thin
     line(width/2, 0, width/2, height); // Vertical divider
     line(0, height/2, width, height/2); // Horizontal divider
     
@@ -230,7 +269,7 @@ function draw() {
     // Check if all shapes have been removed and redraw a clean background
     if (shapes.length === 0 && audioStarted) {
         // All shapes have expired, ensure background is completely clean
-        background(200, 0, 0);
+        background(0); // Clean black background
         console.log("All shapes expired, canvas cleared");
     }
     
@@ -262,7 +301,10 @@ function mousePressed() {
         fill(255);
         noStroke();
         textAlign(CENTER, CENTER);
-        text('Please enable sound first!', width/2, height/2 + 40);
+        // Use smaller font
+        const fontSize = min(24, windowWidth / 25) * 0.7; // 30% smaller
+        textSize(fontSize);
+        text('Please enable sound first!', width/2, height/2 + 30);
         return;
     }
     
@@ -387,7 +429,7 @@ function cleanupExpiredShapes() {
     
     // If all shapes are gone, ensure the canvas is clean
     if (shapes.length === 0) {
-        background(200, 0, 0); // Clean red background
+        background(0); // Clean black background
     }
 }
 
@@ -401,30 +443,56 @@ function windowResized() {
     }
     
     // Redraw background and instructions if needed
-    background(200, 0, 0); // Red background to match
+    background(0); // Black background to match
     
     // If audio hasn't started, redraw instructions
     if (!audioStarted) {
         textAlign(CENTER, CENTER);
         fill(255);
         noStroke();
-        // Use a smaller font size on small screens
-        const fontSize = min(24, windowWidth / 25);
+        // Use a smaller font size on small screens, and reduce by 30%
+        const fontSize = min(24, windowWidth / 25) * 0.7; // 30% smaller
         textSize(fontSize);
         text('Click the button in the top-left corner to enable sound', width/2, height/2);
+        
+        // Add additional mobile instruction if on a mobile device
+        if (isMobileDevice) {
+            textSize(fontSize * 0.8);
+            text('(Tap the pink button)', width/2, height/2 + 30);
+        }
     }
 } 
 
 // Add touch event handlers for mobile devices
+// Consolidated button handler for both mouse and touch events
+function handleStartButtonPress() {
+    // Prevent event propagation
+    if (window.event) {
+        window.event.stopPropagation();
+    }
+    console.log("Button pressed via:", window.event ? window.event.type : "unknown event");
+    startAudio();
+    return false; // Prevent default behavior
+}
+
 function touchStarted() {
-    // Check if the touch is on the start button
-    if (startButton && touches.length === 1 &&
-        touches[0].x >= startButton.x && 
-        touches[0].x <= startButton.x + startButton.size.width &&
-        touches[0].y >= startButton.y && 
-        touches[0].y <= startButton.y + startButton.size.height) {
-        console.log("Touch detected on sound button area - letting button handle it");
-        return false; // Let the button handle the event
+    // Early exit if no touches
+    if (!touches || touches.length === 0) return false;
+    
+    // Check if the touch is on the start button with a slightly larger hit area for mobile
+    if (startButton) {
+        // Add a small buffer around the button for easier tapping (10px on each side)
+        const buffer = 10;
+        if (touches[0].x >= startButton.x - buffer && 
+            touches[0].x <= startButton.x + startButton.size.width + buffer &&
+            touches[0].y >= startButton.y - buffer && 
+            touches[0].y <= startButton.y + startButton.size.height + buffer) {
+            
+            console.log("Touch detected on sound button area");
+            // Manually call our button handler
+            setTimeout(handleStartButtonPress, 10);
+            return false; // Prevent default
+        }
     }
 
     // Prevent default to stop scrolling/zooming
@@ -434,9 +502,13 @@ function touchStarted() {
             fill(255);
             noStroke();
             textAlign(CENTER, CENTER);
-            const fontSize = min(24, windowWidth / 25);
+            const fontSize = min(24, windowWidth / 25) * 0.7; // 30% smaller
             textSize(fontSize);
-            text('Please enable sound first!', width/2, height/2 + 40);
+            text('Please enable sound first!', width/2, height/2 + 30);
+            if (isMobileDevice) {
+                textSize(fontSize * 0.8);
+                text('(Tap the pink button in the top-left)', width/2, height/2 + 60);
+            }
             return false;
         }
         
